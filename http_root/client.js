@@ -84,7 +84,7 @@ define('Game', [{}, function (Socket$, name) {
 define('Socket', function (uiChooseName, name$, room$) {
 	const Socket$ = Observable({ send: () => {} });
 
-	const socket = new WebSocket(`ws://${window.location.host}/socket`);
+	const socket = new WebSocket(`wss://${window.location.host}/socket`);
 	socket.onopen = () => {
 		uiChooseName.onJoinClicked(() => {
 			socket.send(JSON.stringify({
