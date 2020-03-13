@@ -34,4 +34,4 @@ app.get('/', (req, res) => {
 });
 
 app.use(express.static('http_root'));
-app.listen(3000, () => console.log('Polish Poker listening on port 3000!'));
+app.listen(process.env.PORT || 3000, () => console.log('pCards listening...'));
