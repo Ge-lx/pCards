@@ -108,6 +108,11 @@ const Rooms = (function () {
 					currentRoundWholeDeck.push(...clientDeck);
 					client.sendDeck(clientDeck);
 				});
+				currentRoundWholeDeck.sort((a, b) => {
+					const aNum = String(a.value).codePointAt(0);
+					const bNum = String(b.value).codePointAt(0);
+					return aNum - bNum;
+				})
 				ended = false;
 			}
 		};
