@@ -1,0 +1,16 @@
+{
+  "short_name": "Polnish Poker",
+  "name": "Polnish Poker",
+  "icons": [
+    {
+      "src": "logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#FFFFFF",
+  "theme_color": "rgba(51, 51, 51)",
+  "display": "standalone",
+  "orientation": "portrait"
+}
