@@ -295,6 +295,13 @@
 				<h1>Polnish Poker</h1>
 			</div>
 			<bnc-module id="router" name="uiStateRouter">
+				<div bnc-if="showOffline$" class="section">
+					<div id="placeholder">
+						<span polnish-card="offlineCard"></span>
+						<h2>You are offline.</h2>
+					</div>
+				</div>
+
 				<div bnc-if="showClients$" class="section">
 					<div id="clientsHeader">
 						<h1 bnc-bind="room$"></h1>

@@ -136,8 +136,21 @@ define('Socket', function (uiChooseName, name$, room$, isLocal) {
 	const socket$ = Observable({ send: () => {}, close: () => {} });
 	const online$ = Observable(false);
 
+	let autoReconnect = true;
+	const reconnectIfNeeded = () => {
+		if (autoReconnect !== false) {
+			setTimeout(createSocket, 5000);
+		}
+	};
+
 	const createSocket = () => {
-		const socket = new WebSocket(`${isLocal ? 'ws' : 'wss'}://${window.location.host}/socket`);
+		console.log('Trying to open socket');
+		let socket;
+		try {
+			socket = new WebSocket(`${isLocal ? 'ws' : 'wss'}://${window.location.host}/socket`);
+		} catch (error) {
+			return reconnectIfNeeded();
+		} 
 		socket.onopen = () => {
 			online$.value = true;
 			socket$.value = socket;
@@ -146,15 +159,18 @@ define('Socket', function (uiChooseName, name$, room$, isLocal) {
 		socket.onclose = (close) => {
 			console.log('Socket closed.', close);
 			online$.value = false;
+			reconnectIfNeeded();
 		};
 		return socket;
 	};
 
 	const reconnect = () => {
 		if ([2, 3].includes(socket$.value.readyState) === false) {
+			autoReconnect = false;
 			socket$.value.close();
 		}
 		createSocket();
+		autoReconnect = true;
 	};
 	createSocket();
 	return { socket$, online$, reconnect };
@@ -252,14 +268,18 @@ define('uiStateRouter', function (uiChooseName, Game, room$, name$, Socket, frag
 	});
 
 	const state$ = ComputedObservable([Game.state$, nameState$, Socket.online$], function (gameState, nameState, online) {
-		console.log(gameState, nameState, online);
-		return online && nameState !== 'chooseName' ? gameState : 'chooseName';
+		return online ? (nameState !== 'chooseName' ? gameState : 'chooseName') : 'offline';
 	});
 
 	return {
+		offlineCard: {
+			value: 'x',
+			suitUnicode: '∅'
+		},
 		clients$: Game.clients$,
 		room$: room$,
-		showClients$: ComputedObservable([Game.clients$], function (clients) { return Object.keys(clients).length !== 0 }),
+		showOffline$: ComputedObservable([state$], function (state) { return state === 'offline' }),
+		showClients$: ComputedObservable([Game.clients$, Socket.online$], function (clients, online) { return Object.keys(clients).length !== 0 && online}),
 		showNamePicker$: ComputedObservable([state$], function (state) { return state === 'chooseName' }),
 		showEnded$: ComputedObservable([state$], function (state) { return ['ended', 'joined'].includes(state) }),
 		joined$: ComputedObservable([state$], function (state) { return state === 'joined' }),

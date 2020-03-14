@@ -134,13 +134,12 @@ const Rooms = (function () {
 					return acc;
 				}, []);
 				currentRoundWholeDeck.sort((a, b) => valueToNum(b[0].value) - valueToNum(a[0].value));
-				console.log('currentRoundWholeDeck: ', currentRoundWholeDeck);
 				ended = false;
 			}
 		};
 
 		const removeClient = (client) => {
-			clients = clients.filter((x) => x !== client);
+			clients = clients.filter((x) => x.id !== client.id);
 			if (clients.length === 0) {
 				rooms[name] = null;
 			}
