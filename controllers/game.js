@@ -143,7 +143,7 @@ const Rooms = (function () {
 			if (clients.length === 0) {
 				rooms[name] = null;
 			}
-			sendClients();
+			setTimeout(sendClients, 500);
 		};
 
 		const addClient = (client) => {

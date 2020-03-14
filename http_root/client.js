@@ -95,6 +95,7 @@ define('Game', [{}, function (Socket, name$, room$, fragment$, uiChooseName) {
 		fragment$.value = {};
 		state$.value = 'chooseName';
 		clients$.value = {};
+		document.querySelector('#nextCardCount').value = '1';
 
 		Socket.reconnect();
 	}
@@ -207,22 +208,16 @@ define('uiRunning', function (Game) {
 	};
 });
 
-define('uiEnded', function (Game, debounce) {
-	const nextCards$ = Observable(Game.getCardCound());
-	const unbindListener = nextCards$.onChange(debounce(200, Game.sendCardCount));
-
+define('uiEnded', function (Game) {
 	return {
 		placeholderCard: PLACEHOLDRS.JOINED,
-		nextCards$,
 		wholeDeck$: Game.wholeDeck$,
-		setNextCards: (count) => nextCards$.value = count,
-		nextRound: Game.nextRound,
 		$link: (scope, element) => {
-			element.querySelector('#nextRoundButton').onclick = Game.nextRound;
-			element.querySelector('#nextCardCount').onchange = (event) => {
-				nextCards$.value = parseInt(event.target.value);
+			const nextCardsCount = element.querySelector('#nextCardCount');
+			element.querySelector('#nextRoundButton').onclick = () => {
+				Game.sendCardCount(parseInt(nextCardsCount.value));
+				Game.nextRound();
 			};
-			scope.onDestroy(unbindListener);
 		}
 	};
 });
