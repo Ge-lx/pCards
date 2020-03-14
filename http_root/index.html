@@ -5,7 +5,7 @@
 		<meta name="description" content="Forgot the card deck? No problem.">
 		<title>Polnish Poker</title>
 		<meta name="author" content="gelx">
-		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 
 		<link href="https://fonts.googleapis.com/css?family=Quicksand:300,400,600&display=swap&subset=latin-ext" rel="stylesheet">
 		<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+HK:wght@300&display=swap" rel="stylesheet">
@@ -20,6 +20,7 @@
 
 			html {
 				font-family: 'Quicksand', sans-serif;
+				color: rgba(0, 0, 0, 0.8);
 			}
 
 			body {
@@ -45,12 +46,12 @@
 				margin: 10px auto;
 				box-shadow: 0 1px 3px 0px rgba(0, 0, 0, 0.3);
 				border: none;
-				background: #ff5252;
+				background: #E82C2C;
 				color: #fff;
 				border-radius: 3px;
 				
 				font-size: 16px;
-				font-weight: 500;
+				font-weight: 600;
 			}
 
 			.section {
@@ -72,7 +73,8 @@
 
 			#header {
 				position: fixed;
-				background: #ff5252;
+				background: rgba(0, 0, 0, 0.8);
+				border-bottom: 3px solid #E82C2C;
 				color: #fff;
 
 				padding: 10px;
@@ -102,21 +104,41 @@
 
 			/*-------------- CLIENTS -----------------*/
 
-			#players {
-				margin-top: 10px;
+			#clientsHeader {
 				display: flex;
-				flex-direction: row wrap;
+				flex-flow: row nowrap;
+				justify-content: space-between;
+			}
+
+			button#leave {
+				background: none;
+				color: #E82C2C;
+				min-width: unset;
+				margin: unset;
+
+				font-size: 16px;
+				padding: 8px 10px;
+				align-self: center;
+			}
+
+			#players {
+				margin-top: 5px;
+				margin-bottom: -10px;
+				display: flex;
+				flex-flow: row wrap;
+				justify-content: center;
 			}
 
 			.player {
 				display: inline-block;
 				padding: 5px 15px;
-				margin-right: 10px;
+				margin: 8px 8px 0 0;
 				border-radius: 20px;
 				box-shadow: 0px 1px 3px 0px rgba(0, 0, 0, 0.2);
 			}
 
 			.player span:nth-of-type(2) {
+				color: #E82C2C;
 				margin-left: 6px;
 				padding-left: 10px;
 				border-left: 1px solid rgba(0, 0, 0, 0.12);
@@ -127,25 +149,33 @@
 			.cards {
 				display: flex;
 				flex-flow: row wrap;
-				justify-content: space-around;
+				justify-content: center;
 			}
 
 			[polnish-card] {
-				font-family: 'Noto Sans HK', serif;
 				display: inline-flex;
 				flex-flow: column nowrap;
-				width: 120px;
-				height: 190px;
+				width: 110px;
+				height: 170px;
 				justify-content: space-between;
-				padding: 5px;
-				margin: 5px 2px;
+				padding: 5px 7px;
+				margin: 5px 4px;
 
 				border-radius: 5px;
 				box-shadow: 0 1px 3px 0px rgba(0, 0, 0, 0.3);
 			}
 
 			[polnish-card].red {
-				color: #ff5252;
+				color: #E82C2C;
+			}
+
+			[polnish-card].highlighted {
+				background: rgba(0, 0, 0, 0.8);
+				color: white;
+			}
+
+			[polnish-card].red.highlighted {
+				background: #E82C2C;
 			}
 
 			[polnish-card] > div {
@@ -154,6 +184,7 @@
 			}
 
 			[polnish-card] .suit {
+				font-family: 'Noto Sans HK', serif;
 				display: flex;
 				justify-content: space-around;
 				font-size: 70px;
@@ -163,6 +194,26 @@
 
 			[polnish-card] .value {
 				font-size: 26px;
+				line-height: 25px;
+			}
+
+			[polnish-card-row] > [polnish-card] {
+			    width: 80px;
+			    height: 130px;
+				padding: 1px 6px;
+			}
+
+			[polnish-card-row] {
+			    margin: 5px 20px;
+			    display: flex;
+			    justify-content: center;
+			}
+
+			[polnish-card-row] > [polnish-card] .value {
+			    font-size: 20px;
+			}
+			[polnish-card-row] > [polnish-card] .suit {
+				font-size: 50px;
 			}
 
 			/*------------------ INPUTS --------------------*/
@@ -205,6 +256,13 @@
 				flex-direction: column;
 			}
 
+			#placeholder {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				margin-top: 50px;
+			}
+
 			.table {
 				border-top: 1px solid rgba(0, 0, 0, 0.12);
 			}
@@ -238,7 +296,11 @@
 			</div>
 			<bnc-module id="router" name="uiStateRouter">
 				<div bnc-if="showClients$" class="section">
-					<h3 bnc-template>Players in "${room$}"</h3>
+					<div id="clientsHeader">
+						<h1 bnc-bind="room$"></h1>
+						<button id="leave">EXIT</button>
+					</div>
+					
 					<div bnc-for="name, cards of clients$" id="players">
 						<div class="player">
 							<span bnc-bind="name"></span>
@@ -257,13 +319,14 @@
 				
 				<bnc-module bnc-if="showEnded$" name="uiEnded" class="section" id="ended">
 					<div class="table">
-						<div bnc-if="joined$">
+						<div bnc-if="joined$" id="placeholder">
+							<span polnish-card="placeholderCard"></span>
 							<h2>You joined the game.</h2>
 						</div>
 						<div bnc-if="ended$">
 							<h2>All Cards</h2>
-							<div bnc-for="card in wholeDeck$" class="cards">
-								<span polnish-card="card"></span>
+							<div bnc-for="valueGroup in wholeDeck$" class="cards">
+								<span polnish-card-row="valueGroup"></span>
 							</div>
 						</div>
 					</div>

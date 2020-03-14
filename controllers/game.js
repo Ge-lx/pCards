@@ -108,11 +108,33 @@ const Rooms = (function () {
 					currentRoundWholeDeck.push(...clientDeck);
 					client.sendDeck(clientDeck);
 				});
-				currentRoundWholeDeck.sort((a, b) => {
-					const aNum = String(a.value).codePointAt(0);
-					const bNum = String(b.value).codePointAt(0);
-					return aNum - bNum;
-				})
+
+				// Group and sort whole deck
+				const valueToNum = (val) => {
+					if (typeof val === 'number') {
+						return val;
+					}
+
+					switch (val) {
+						case 'J': return 11;
+						case 'Q': return 12;
+						case 'K': return 13;
+						case 'A': return 14;
+						default: return 0;
+					}
+				};
+
+				currentRoundWholeDeck = currentRoundWholeDeck.reduce((acc, curr) => {
+					const valuesArray = acc.find(x => x[0].value === curr.value);
+					if (valuesArray) {
+						valuesArray.push(curr);
+					} else {
+						acc.push([curr]);
+					}
+					return acc;
+				}, []);
+				currentRoundWholeDeck.sort((a, b) => valueToNum(b[0].value) - valueToNum(a[0].value));
+				console.log('currentRoundWholeDeck: ', currentRoundWholeDeck);
 				ended = false;
 			}
 		};
