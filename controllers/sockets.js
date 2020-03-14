@@ -68,8 +68,8 @@ const Client = (ws, req) => {
 	return new Promise((resolve, reject) => {
 		console.log('Awating JOIN from client ' + client.id);
 		const clientJoinHandler = (data) => {
-			client.name = data.name;
-			client.room = data.room;
+			client.name = data.name || client.id.substr(-5);
+			client.room = data.room || 'Public';
 			removeHandler(MESSAGE_TYPES.JOIN, clientJoinHandler);
 			console.log(`Client ${client.id} JOIN: ${client.name}.`);
 			resolve(client);

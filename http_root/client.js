@@ -46,6 +46,17 @@ const MESSAGE_TYPES = {
 	ROOMS: 0x06
 };
 
+const PLACEHOLDRS = {
+	OFFLINE: {
+		value: 'x',
+		suitUnicode: '∅'
+	},
+	JOINED: {
+		value: '?',
+		suitUnicode: '?'
+	},
+};
+
 define('Game', [{}, function (Socket, name$, room$, fragment$, uiChooseName) {
 	const state$ = Observable('joined');
 	const deck$ = Observable([]);
@@ -53,6 +64,16 @@ define('Game', [{}, function (Socket, name$, room$, fragment$, uiChooseName) {
 	const clients$ = Observable({});
 
 	const sendCardCount = (count) => Socket.socket$.value.send(JSON.stringify({ type: MESSAGE_TYPES.NEXT_CARDS, count }));
+	const sendName = () => {
+		return uiChooseName.onJoinClicked(() => {
+			Socket.socket$.value.send(JSON.stringify({
+				type: MESSAGE_TYPES.JOIN,
+				name: name$.value,
+				room: room$.value
+			}));
+			state$.value = 'joined';
+		});
+	};
 	const showCards = () => {
 		if (state$.value === 'running') {
 			Socket.socket$.value.send(JSON.stringify({ type: MESSAGE_TYPES.SHOW }));
@@ -78,20 +99,22 @@ define('Game', [{}, function (Socket, name$, room$, fragment$, uiChooseName) {
 		Socket.reconnect();
 	}
 
+	Socket.online$.onChange(function (online) {
+		if (online === false) {
+			if (name$.value === '') {
+				state$.value = 'chooseName';
+			}
+			clients$.value = {};
+		}
+	})
+
 	Socket.socket$.stream(function (socket) {
 		if (Socket.online$.value === false) {
 			return;
 		}
 
 		sendCardCount(1);
-		uiChooseName.onJoinClicked(() => {
-			socket.send(JSON.stringify({
-				type: MESSAGE_TYPES.JOIN,
-				name: name$.value,
-				room: room$.value
-			}));
-			state$.value = 'joined';
-		});
+		sendName();
 		socket.onmessage = (message) => {
 			const data = JSON.parse(message.data);
 			console.log('Socket message: ', data);
@@ -144,7 +167,6 @@ define('Socket', function (uiChooseName, name$, room$, isLocal) {
 	};
 
 	const createSocket = () => {
-		console.log('Trying to open socket');
 		let socket;
 		try {
 			socket = new WebSocket(`${isLocal ? 'ws' : 'wss'}://${window.location.host}/socket`);
@@ -190,10 +212,7 @@ define('uiEnded', function (Game, debounce) {
 	const unbindListener = nextCards$.onChange(debounce(200, Game.sendCardCount));
 
 	return {
-		placeholderCard: {
-			value: '?',
-			suitUnicode: '?'
-		},
+		placeholderCard: PLACEHOLDRS.JOINED,
 		nextCards$,
 		wholeDeck$: Game.wholeDeck$,
 		setNextCards: (count) => nextCards$.value = count,
@@ -211,12 +230,16 @@ define('uiEnded', function (Game, debounce) {
 define('isLocal', function () { return ['localhost', '127.0.0.1'].includes(window.location.hostname) || window.location.hostname.startsWith('192.168.') });
 define('fragment', function () {
 	const serialize = (obj) => Object.keys(obj)
-		.map((key) => `${key}=${encodeURIComponent(obj[key])}`)
+		.map((key) => obj[key] ? `${key}=${encodeURIComponent(obj[key])}` : '')
+		.filter(x => !!x)
 		.join('&');
 	const parse = (str) => !str ? {} : str.split('&')
 		.reduce((obj, arg) => {
 			const [key, val] = arg.split('=');
-			obj[key] = decodeURIComponent(val) || true;
+			const decoded = decodeURIComponent(val);
+			if (!!decoded) {
+				obj[key] = decoded;
+			}
 			return obj;
 		}, {});
 
@@ -225,7 +248,7 @@ define('fragment', function () {
 	return fragment$;
 });
 define('name', function (fragment) { return fragment.name || '' });
-define('room', function (fragment) { return fragment.room || null });
+define('room', function (fragment) { return fragment.room || '' });
 define('uiChooseName', function (name$, room$, fragment$) {
 	let joinClickedCallbacks = [];
 	const nameNotEmpty$ = ComputedObservable([name$], (name) => name !== '')
@@ -242,21 +265,26 @@ define('uiChooseName', function (name$, room$, fragment$) {
 			const inputRoom = element.querySelector('input#room');
 			const inputName = element.querySelector('input#name');
 
-			inputRoom.onchange = (event) => {
-				room$.value = event.target.value;
-			};
-
-			inputName.onchange = (event) => {
-				name$.value = event.target.value;
-			};
+			inputRoom.onchange = (event) => room$.value = event.target.value;
+			inputName.onchange = (event) => name$.value = event.target.value;
+			const unbindNameListener = name$.stream(name => inputName.value = name);
+			const unbindRoomListener = room$.stream(room => inputRoom.value = room);
 
 			element.querySelector('button#join').onclick = () => {
+				if (room$.value === '') {
+					room$.value = 'Public';
+				}
 				fragment$.value = { name: name$.value, room: room$.value };
 				joinClickedCallbacks.forEach(callback => callback());
 				joinClickedCallbacks = [];
 				inputName.value = '';
 				inputRoom.value = '';
 			};
+
+			scope.onDestroy(() => {
+				unbindNameListener();
+				unbindRoomListener();
+			});
 		},
 	};
 });
@@ -272,10 +300,7 @@ define('uiStateRouter', function (uiChooseName, Game, room$, name$, Socket, frag
 	});
 
 	return {
-		offlineCard: {
-			value: 'x',
-			suitUnicode: '∅'
-		},
+		offlineCard: PLACEHOLDRS.OFFLINE,
 		clients$: Game.clients$,
 		room$: room$,
 		showOffline$: ComputedObservable([state$], function (state) { return state === 'offline' }),
