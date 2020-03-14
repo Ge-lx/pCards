@@ -2,11 +2,13 @@
 <html lang="en">
 	<head>
 		<meta charset="UTF-8">
-		<meta name="description" content="Simple Polnish Poker Deck">
+		<meta name="description" content="Forgot the card deck? No problem.">
+		<title>Polnish Poker</title>
 		<meta name="author" content="gelx">
 		<meta name="viewport" content="width=device-width, initial-scale=1">
 
 		<link href="https://fonts.googleapis.com/css?family=Quicksand:300,400,600&display=swap&subset=latin-ext" rel="stylesheet">
+		<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+HK:wght@300&display=swap" rel="stylesheet">
 		<script type="text/javascript" src="bunch.js"></script>
 		<script type="text/javascript" src="bnc.js"></script>
 		<script type="text/javascript" src="client.js"></script>
@@ -48,7 +50,7 @@
 				border-radius: 3px;
 				
 				font-size: 16px;
-				font-weight: 600;
+				font-weight: 500;
 			}
 
 			.section {
@@ -129,16 +131,21 @@
 			}
 
 			[polnish-card] {
+				font-family: 'Noto Sans HK', serif;
 				display: inline-flex;
 				flex-flow: column nowrap;
 				width: 80px;
 				height: 120px;
 				justify-content: space-between;
 				padding: 5px;
-				margin: 2px;
+				margin: 5px 2px;
 
 				border-radius: 5px;
 				box-shadow: 0 1px 3px 0px rgba(0, 0, 0, 0.3);
+			}
+
+			[polnish-card].red {
+				color: #ff5252;
 			}
 
 			[polnish-card] > div {
@@ -149,7 +156,7 @@
 			[polnish-card] .suit {
 				display: flex;
 				justify-content: space-around;
-				font-size: 70px;
+				font-size: 50px;
 				width: 100%;
 				margin: -40px 0px -40px 0px;
 			}
@@ -255,7 +262,7 @@
 						</div>
 						<div bnc-if="ended$">
 							<h2>All Cards</h2>
-							<div bnc-for="card in cardUnicodes$" class="cards">
+							<div bnc-for="card in wholeDeck$" class="cards">
 								<span polnish-card="card"></span>
 							</div>
 						</div>
@@ -273,7 +280,7 @@
 				<bnc-module bnc-if="showRunning$" name="uiRunning" class="section" id="running">
 					<div class="table">
 						<h2>Your Cards</h2>
-						<div bnc-for="card in cardUnicodes$" class="cards">
+						<div bnc-for="card in deck$" class="cards">
 							<span polnish-card="card"></span>
 						</div>
 					</div>

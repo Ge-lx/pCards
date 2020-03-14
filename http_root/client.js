@@ -4,9 +4,10 @@ resolve(function bnc_polnish_card (bnc) {
 	return bnc.$directive('[polnish-card]', (element, nearestModule) => {
 		const identifier = element.getAttribute('polnish-card');
 		nearestModule.$watcher(identifier, card => {
-			console.log('Updating..');
-			const valueRow = `<div>${Array(3).join(`<span class="value">${card[1]}</span>`)}</div>`;
-			element.innerHTML = valueRow + `<div class="suit">${card[0]}</div>` + valueRow;
+			element.className = card.isRed ? 'red' : 'black';
+
+			const valueRow = `<div>${Array(3).join(`<span class="value">${card.value}</span>`)}</div>`;
+			element.innerHTML = valueRow + `<div class="suit">${card.suitUnicode}</div>` + valueRow;
 		});
 	});
 });
@@ -84,7 +85,8 @@ define('Game', [{}, function (Socket$, name) {
 define('Socket', function (uiChooseName, name$, room$) {
 	const Socket$ = Observable({ send: () => {} });
 
-	const socket = new WebSocket(`wss://${window.location.host}/socket`);
+	const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);;
+	const socket = new WebSocket(`${isLocal ? 'ws' : 'wss'}://${window.location.host}/socket`);
 	socket.onopen = () => {
 		uiChooseName.onJoinClicked(() => {
 			socket.send(JSON.stringify({
@@ -103,12 +105,7 @@ define('Socket', function (uiChooseName, name$, room$) {
 });
 
 define('uiRunning', function (Game) {
-	const cardUnicodes$ = ComputedObservable([Game.deck$], function (deck) {
-		return deck.map(card => card.unicode);
-	});
-
 	return {
-		cardUnicodes$,
 		deck$: Game.deck$,
 		$link: (scope, element) => {
 			element.querySelector('#showCardsButton').onclick = Game.showCards;
@@ -119,13 +116,10 @@ define('uiRunning', function (Game) {
 define('uiEnded', function (Game, debounce) {
 	const nextCards$ = Observable(Game.getCardCound());
 	const unbindListener = nextCards$.onChange(debounce(200, Game.sendCardCount));
-	const cardUnicodes$ = ComputedObservable([Game.wholeDeck$], function (wholeDeck) {
-		return wholeDeck.map(card => card.unicode);
-	});
 
 	return {
 		nextCards$,
-		cardUnicodes$,
+		wholeDeck$: Game.wholeDeck$,
 		setNextCards: (count) => nextCards$.value = count,
 		nextRound: Game.nextRound,
 		$link: (scope, element) => {

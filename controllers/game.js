@@ -37,15 +37,14 @@ const shuffledDeck = (function () {
 			default: return String(x);
 		}
 	};
-	const display = (suit, value) => `${valuename(value)} of ${suitname(suit)}`;
-	const unicode = (suit, value) => String.fromCodePoint(parseInt(`${UNICODE_PREFIX}${suit}`, 16)) + value;
 
     const Card = (suit, value) => {
     	return {
 	        suit,
 	        value,
-	        name: display(suit, value),
-	        unicode: unicode(suit, value),
+	        isRed: [1, 2].includes(suit),
+	        suitUnicode: String.fromCodePoint(parseInt(`${UNICODE_PREFIX}${suit}`, 16)),
+	        name: `${valuename(value)} of ${suitname(suit)}`,
 	    };
     };
 
