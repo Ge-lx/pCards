@@ -33,5 +33,7 @@ app.get('/', (req, res) => {
         });
 });
 
+const port = process.env.PORT || 3000;
+
 app.use(express.static('http_root'));
-app.listen(process.env.PORT || 3000, () => console.log('pCards listening...'));
+app.listen(port, () => console.log(`pCards listening on ${port}...`));

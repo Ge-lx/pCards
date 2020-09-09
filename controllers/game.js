@@ -1,4 +1,5 @@
 const { MESSAGE_TYPES } = require('./sockets');
+const { logEvent, EVENTS } = require('../metrics/metrics');
 
 const shuffledDeck = (function () {
 	/**
@@ -144,12 +145,25 @@ const Rooms = (function () {
 				rooms[name] = null;
 			}
 			setTimeout(sendClients, 500);
+
+			logEvent(EVENTS.LEAVE, {
+				username: client.name,
+				userId: client.id,
+				room: name
+			});
 		};
 
 		const addClient = (client) => {
 			client.cardCount = 1;
 
 			client.registerHandler(MESSAGE_TYPES.NEXT_CARDS, ({ count }) => {
+				logEvent(EVENTS.CHANGE_CARDS, {
+					userId: client.id,
+					room: name,
+					old: client.cardCount,
+					new: count
+				});
+
 				client.cardCount = count;
 				sendClients();
 			});
@@ -165,6 +179,12 @@ const Rooms = (function () {
 			clients.push(client);
 			console.log(`Client ${client.name} joined room ${name}.`);
 			sendClients();
+
+			logEvent(EVENTS.JOIN, {
+				username: client.name,
+				userId: client.id,
+				room: name
+			});
 		};
 
 		return {
