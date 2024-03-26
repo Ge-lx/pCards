@@ -1,21 +1,16 @@
 /* bunch.js - compact javascript dependency injection */
 
 const bunch = (function () {
-	const isObserable = value => {
+	const isObservable = value => {
 		return (value && value._$) ? true : false;
 	};
 	const Observable = (initialValue, readOnly = false) => {
-		if (isObserable(initialValue)) {
+		if (isObservable(initialValue)) {
 			if (readOnly) {
+				const { onChange, stream, when } = initialValue;
 				return {
 					_$: true,
-					isObserable,
-					onChange: callback => {
-						return initialValue.onChange(callback);
-					},
-					stream: callback => {
-						return initialValue.stream(callback);
-					},
+					isObservable, onChange, stream, when,
 					get value () {
 						return initialValue.value;
 					}
@@ -39,27 +34,45 @@ const bunch = (function () {
 
 		const triggerListeners = (newValue, oldValue) => {
 			listeners.forEach(listener => {
-				// Listeners can overwrite the current change by returning a truthy value to be used for further calls
-				let newValue = listener(value, oldValue)
-				if (newValue) {
-					oldValue = value;
-					value = newValue;
+				if (typeof listener.check === 'function') {
+					if (listener.check(newValue) !== true) {
+						return;
+					}
+				}
+				// Listeners can overwrite the current change by returning a value to be used for further calls
+				let overwriteValue = listener(newValue, oldValue)
+				if (overwriteValue !== undefined) {
+					value = overwriteValue;
+					oldValue = newValue;
+					newValue = value;
 				}
 			});
 		};
 
 		return {
 			_$: true,
-			isObserable,
+			isObservable,
 			onChange: (callback) => {
 				return registerListenerReturnUnbinder(callback);
 			},
 			stream: (callback) => {
-				const unbinder = registerListenerReturnUnbinder(callback);
 				callback(value);
-				return unbinder;
+				return registerListenerReturnUnbinder(callback);
+			},
+			when: (check, callback) => {
+				if (typeof callback !== 'function') {
+					callback = check;
+					check = (a => !!a);
+				}
+				callback.check = check;
+				if (check(value) === true) {
+					callback(value);
+				}
+
+				return registerListenerReturnUnbinder(callback);
 			},
 			trigger: () => triggerListeners(value, value),
+			destroy: () => listeners = [],
 			get value () {
 				return value;
 			},
@@ -74,7 +87,7 @@ const bunch = (function () {
 		if (Array.isArray(observablesToWatch) === false) {
 			observablesToWatch = [observablesToWatch];
 		}
-		if (observablesToWatch.every(isObserable) === false) {
+		if (observablesToWatch.every(isObservable) === false) {
 			throw new Error('Cannot watch on non-observable values.');
 		}
 
@@ -84,9 +97,20 @@ const bunch = (function () {
 		}
 
 		const obs$ = Observable(computeValue());
-		observablesToWatch.forEach(obs => obs.onChange(function () {
-			obs$.value = computeValue();
-		}));
+		let unbindObservables = [];
+
+		observablesToWatch.forEach(obs => {
+			const unbind = obs.onChange(() => {
+				obs$.value = computeValue();
+			});
+			unbindObservables.push(unbind);
+		});
+
+		const originalDestroy = obs$.destroy;
+		obs$.destroy = () => {
+			unbindObservables.forEach(unbind => unbind());
+			unbindObservables = [];
+		};
 		return obs$;
 	};
 
@@ -94,7 +118,7 @@ const bunch = (function () {
 		const config = {
 			version: 1.0,
 			debug: cfg.debug || false,
-			registrationTimeout: cfg.registrationTimeout || 5000,
+			registrationTimeout: cfg.registrationTimeout || 1000,
 			maxId: cfg.maxId || 50
 		};
 
@@ -104,8 +128,7 @@ const bunch = (function () {
 				return () => (id > config.maxId) ? (id = 1) : (++id);
 			}()),
 			getArguments: (func) => {
-			    const ARROW = true;
-			    const FUNC_ARGS = ARROW ? /^(function)?\s*[^\(]*\(\s*([^\)]*)\)/m : /^(function)\s*[^\(]*\(\s*([^\)]*)\)/m;
+			    const FUNC_ARGS = /^(function)?\s*[^\(]*\(\s*([^\)]*)\)/m;
 			    const FUNC_ARG_SPLIT = /,/;
 			    const FUNC_ARG = /^\s*(_?)(.+?)\1\s*$/;
 			    const STRIP_COMMENTS = /((\/\/.*$)|(\/\*[\s\S]*?\*\/))/mg;
@@ -299,18 +322,15 @@ const bunch = (function () {
 			});
 		};
 
-		const loadModules = (moduleNames) => {
-			return new Promise((pResolve, pReject) => {
-				resolve(moduleNames, function (...modules) {
-					pResolve(modules);
-				});
-			});
-		};
+		const load = (name, as$ = true) => registrations
+			.when(name)
+			.then(config => loadModule(config))
+			.then(loadedModule => as$ ? loadedModule.$ : loadedModule.$.value);
 
 		define('Observable', function () { return Observable });
 		define('ComputedObservable', function () { return ComputedObservable });
 
-		return { external, define, resolve, loadModules, Observable, ComputedObservable, isObserable, debug: config.debug };
+		return { external, define, resolve, load, Observable, ComputedObservable, isObservable, debug: config.debug };
 	};
 
 	return init;

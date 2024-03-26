@@ -60,9 +60,27 @@ const Client = (ws, req) => {
 		set onclose (handler) {
 			closeHandlers.push(handler);
 		},
-		sendDeck: (deck) => ws.send(JSON.stringify({ type: MESSAGE_TYPES.DECK, deck })),
-		showCards: (cards) => ws.send(JSON.stringify({ type: MESSAGE_TYPES.SHOW, cards })),
-		sendClients: (clients) => ws.send(JSON.stringify({ type: MESSAGE_TYPES.CLIENTS, clients })),
+		sendDeck: (deck) => {
+			try {
+				ws.send(JSON.stringify({ type: MESSAGE_TYPES.DECK, deck }));
+			} catch (e) {
+				console.log('Could not send message of type \'DECK\' to client: ', e);
+			}
+		},
+		showCards: (cards) => {
+			try {
+				ws.send(JSON.stringify({ type: MESSAGE_TYPES.SHOW, cards }));
+			} catch (e) {
+				console.log('Could not send message of type \'SHOW\' to client: ', e);
+			}
+		},
+		sendClients: (clients) => {
+			try {
+				ws.send(JSON.stringify({ type: MESSAGE_TYPES.CLIENTS, clients }));
+			} catch (e) {
+				console.log('Could not send message of type \'CLIENTS\' to client: ', e);
+			}
+		},
 	}
 
 	return new Promise((resolve, reject) => {

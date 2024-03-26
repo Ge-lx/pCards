@@ -1,6 +1,6 @@
 const { MESSAGE_TYPES } = require('./sockets');
 
-const shuffledDeck = (function () {
+const Cards = (function () {
 	/**
 	 * Shuffles array in place. ES6 version
 	 * @param {Array} a items An array containing the items.
@@ -28,6 +28,7 @@ const shuffledDeck = (function () {
 			case 7: return 'Clubs';
 		}
 	};
+
 	const valuename = (x) => {
 		switch (x) {
 			case 'J': return 'Jack';
@@ -38,10 +39,26 @@ const shuffledDeck = (function () {
 		}
 	};
 
+	const sortValue = (val) => {
+		if (typeof val === 'number') {
+			return val;
+		}
+
+		switch (val) {
+			case 'J': return 11;
+			case 'Q': return 12;
+			case 'K': return 13;
+			case 'A': return 14;
+			default: return 0;
+		}
+	};
+
+
     const Card = (suit, value) => {
     	return {
 	        suit,
 	        value,
+	        sortValue: sortValue(value),
 	        isRed: [1, 2].includes(suit),
 	        suitUnicode: String.fromCodePoint(parseInt(`${UNICODE_PREFIX}${suit}`, 16)),
 	        name: `${valuename(value)} of ${suitname(suit)}`,
@@ -56,12 +73,33 @@ const shuffledDeck = (function () {
         return Deck.VALUES32.map((value) => Card(suit, value));
     });
 
-    return (which = 32) => {
-        const deck = which === 32 ? Deck32.slice() : Deck52.slice();
-        for (let i = 10; i >= 0; i--) {
-            shuffle(deck);
-        }
-        return deck;
+    return {
+    	newDeck: (which = 32) => {
+	        const deck = which === 32 ? Deck32.slice() : Deck52.slice();
+	        const num_shuffles = Math.floor(Math.random() * 10);
+	        for (let i = num_shuffles; i >= 0; i--) {
+	            shuffle(deck);
+	        }
+	        return deck;
+	    },
+	    sortDeck: (deck, group_by_value = false) => {
+			if (group_by_value) {
+				// Group and sort whole deck
+				deck = deck.reduce((acc, curr) => {
+					const existingGroup = acc.find(x => x[0].value === curr.value);
+					if (existingGroup) {
+						existingGroup.push(curr);
+					} else {
+						acc.push([curr]);
+					}
+					return acc;
+				}, []);
+				return deck.sort((a, b) => b[0].sortValue - a[0].sortValue);
+			} else {
+				// Just sort the deck
+				return deck.sort((a, b) => b.sortValue - a.sortValue);
+			}
+		}
     };
 }());
 
@@ -73,84 +111,73 @@ const Rooms = (function () {
 		let ended = true;
 		let currentRoundWholeDeck = [];
 
-		const showCards = () => {
-			if (!ended) {
+		const showCards = (always = false) => {
+			if (!ended || always) {
 				clients.forEach((client) => client.showCards(currentRoundWholeDeck));
 				ended = true;
 			}
 		};
 
 		const sendClients = () => {
+			// console.log('sendClients: ', clients);
 			const clientsData = clients.reduce((data, client) => {
-				const value = typeof client.cardCount === 'number' ? client.cardCount : '-';
+				let value = client.cardCount;
+				if (typeof client.cardCount !== 'number' || client.offline === true) {
+					value = '-';
+				}
 				data[client.name] = value;
 				return data;
 			}, {});
 
-			clients.forEach((client) => client.sendClients(clientsData));
+			clients.forEach((client) => {
+				if (!client.offline) {
+					client.sendClients(clientsData);
+				}
+			});
 		};
 
 		const nextRound = () => {
 			if (ended) {
-				const newDeck = shuffledDeck(32);
+				const newDeck = Cards.newDeck(32);
 				currentRoundWholeDeck = [];
 
 				clients.forEach((client) => {
+					if (client.offline) {
+						return;
+					}
 					const clientDeck = [];
 					const clientCardCount = client.cardCount;
 					console.log(`Sending ${clientCardCount} cards to ${client.name}.`);
 					for (let i = 0; i < clientCardCount; i++) {
 						if (newDeck.length === 0) {
+							// TODO: Proper error handling. Maybe preemtive check before client join?
 							console.error('We have no cards left.');
+						} else {
+							clientDeck.push(newDeck.pop());
 						}
-						clientDeck.push(newDeck.pop());
 					}
 					currentRoundWholeDeck.push(...clientDeck);
+					client.currentDeck = Cards.sortDeck(clientDeck);
 					client.sendDeck(clientDeck);
 				});
 
-				// Group and sort whole deck
-				const valueToNum = (val) => {
-					if (typeof val === 'number') {
-						return val;
-					}
-
-					switch (val) {
-						case 'J': return 11;
-						case 'Q': return 12;
-						case 'K': return 13;
-						case 'A': return 14;
-						default: return 0;
-					}
-				};
-
-				currentRoundWholeDeck = currentRoundWholeDeck.reduce((acc, curr) => {
-					const valuesArray = acc.find(x => x[0].value === curr.value);
-					if (valuesArray) {
-						valuesArray.push(curr);
-					} else {
-						acc.push([curr]);
-					}
-					return acc;
-				}, []);
-				currentRoundWholeDeck.sort((a, b) => valueToNum(b[0].value) - valueToNum(a[0].value));
+				currentRoundWholeDeck = Cards.sortDeck(currentRoundWholeDeck, true);
 				ended = false;
 			}
 		};
 
 		const removeClient = (client) => {
-			clients = clients.filter((x) => x.id !== client.id);
-			if (clients.length === 0) {
-				rooms[name] = null;
-			}
-			setTimeout(sendClients, 500);
+			client.offline = true;
+			sendClients();
 		};
 
 		const addClient = (client) => {
-			client.cardCount = 1;
+			console.log(`game::addClient(c) where c.name=${client.name}, c.id=${client.id}`);
+			client.offline = false;
 
 			client.registerHandler(MESSAGE_TYPES.NEXT_CARDS, ({ count }) => {
-				client.cardCount = count;
+				client.cardCount = parseInt(count);
+				console.log(`Card count for ${client.name} changed to ${count}`);
 				sendClients();
 			});
 
@@ -162,9 +189,32 @@ const Rooms = (function () {
 				removeClient(client);
 			};
 
-			clients.push(client);
-			console.log(`Client ${client.name} joined room ${name}.`);
-			sendClients();
+			setTimeout(() => {
+				const [c] = clients.filter(c => c.name === client.name);
+				if (c) {
+					console.log(`Client ${client.name} re-joined room ${name}.`);
+					client.id = c.id;
+					client.name = c.name;
+					client.room = c.room;
+					client.currentDeck = c.currentDeck;
+					client.cardCount = c.cardCount;
+					client.offline = false;
+
+					client.sendDeck(client.currentDeck);
+					if (ended) {
+						client.showCards(currentRoundWholeDeck);
+					}
+					clients = clients.filter(c => c.id !== client.id);
+					clients.push(client);
+				} else {
+					client.cardCount = 1;
+					clients.push(client);
+					console.log(`New client ${client.name} joined room ${name}.`);
+				}
+
+				sendClients();
+			}, 10);
+
 		};
 
 		return {

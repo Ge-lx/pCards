@@ -1,111 +1,172 @@
 /* bnc.js - bunch node controller */
 
 (function () {
-	const bnc_bunch = bunch({ debug: true });
-	const { define, resolve, loadModules, Observable, ComputedObservable, debug } = bnc_bunch;
+	const bnc_bunch = bunch({ debug: false });
+	const { define, resolve, load, Observable, ComputedObservable, isObservable, debug } = bnc_bunch;
 
 	const ID = (function () {
 		let id = 1;
 		return () => ++id;
 	}());
 
-	const getElementDepth = el => {
-		var depth = 0
-		while (el.parentElement !== null) {
-			el = el.parentElement;
-			depth++;
-		}
-		return depth;
+	const evalInScope = (scope, expression) => {
+	    const evaluator = Function.apply(null, [...Object.keys(scope), 'expr', 'return eval(expr)']);
+	    return evaluator.apply(null, [...Object.values(scope), expression]);
 	};
 
+	(function augmentPromise () {
+		Promise.try = (handler, ...args) => {
+			try {
+				if (args.length > 0) {
+					handler = handler.bind(null, ...args);
+				}
+				var value = handler();
+				if (value instanceof Promise) {
+					return value;
+				} else {
+					return Promise.resolve(value);	
+				}
+			} catch (error) {
+				return Promise.reject(error);
+			}
+		};
+	}());
+
 	const bnc_scope = ($, $parent) => {
+		const id = ID();
+		if (!$parent) {
+			console.log('Creating scope without parent: ', id, $, $parent);
+		}
 		const onDestroyCallbacks = [];
-		const onDestroy = (cb) => {
+		const $onDestroy = (cb) => {
 			onDestroyCallbacks.push(cb);
 		};
 
-		const $registerWatcher = (function (){
-			const registerWatchers = [];
+		const compoundScope$ = ComputedObservable([$parent.$, $], (parentScope, thisScope) => {
+			return { ...parentScope, ...thisScope };
+		});
+		$onDestroy(compoundScope$.destroy);
+
+		const evalInCompoundScope = (expression) => {
+			try {
+				return evalInScope(compoundScope$.value, expression);
+			} catch (error) {
+				const errorDetails = debug ? { error, scope: compoundScope$.value, expression } : error.message;
+				console.error(`Could not evaluate ${expression} `, errorDetails);
+			}
+		};
+
+		const $watcher = (function (){
+			const registeredWatchers = [];
 			let unbindWatchers = [];
 
-			const activateWatcher = (watcher, immediate = true) => {
-				if ($.value.hasOwnProperty(watcher.identifier)) {
-					const obs = Observable($.value[watcher.identifier]);
-					const unbind = immediate ? obs.stream(watcher.update) : obs.onChange(watcher.update);
+			const activateWatcher = (watcher) => {
+				let value = evalInCompoundScope(watcher.expression);
+				if (isObservable(value)) {
+					const unbind = value.onChange(watcher.update);
 					unbindWatchers.push(unbind);
-				} else {
-					throw new Error(`Failed to activate watcher for '${watcher.identifier}' on ${$.value}`);
+					value = value.value;
+				}
+				if (watcher.immediate) {
+					watcher.update(value);
 				}
 			};
 
-			const unbindFromObservable = $.onChange(() => {
+			const unbindFromObservable = compoundScope$.onChange(() => {
 				unbindWatchers.forEach(unbind => unbind());
 				unbindWatchers = [];
-				registerWatchers.forEach(watcher => activateWatcher(watcher));
+				registeredWatchers.forEach(watcher => activateWatcher(watcher));
 			});
-			onDestroy(() => {
+			$onDestroy(() => {
 				unbindWatchers.forEach(unbind => unbind());
 				unbindFromObservable();
 			});
 
-			return (identifier, update, immediate = true) => {
-				const watcher = { identifier, update };
-				try {
-					activateWatcher(watcher, immediate);
-					registerWatchers.push(watcher);
-				} catch (error) {
-					$parent.$watcher(identifier, update, immediate);
-				}	
+			return (expression, update, immediate = true) => {
+				const watcher = { expression, update, immediate }
+				activateWatcher(watcher);
+				registeredWatchers.push(watcher);
 			};
 		}());
 
+		const $get = (expression) => {
+			let value = evalInCompoundScope(expression);
+			if (isObservable(value)) {
+				return value.value
+			} else {
+				return value;
+			}
+		};
+
+		const $get$ = (expression) => {
+			return Observable(evalInCompoundScope(expression));
+		};
+
 		return {
-			id: ID(),
-			$,
+			$bnc_scope: true,
+			id,
+			$: compoundScope$,
 			$parent,
-			onDestroy,
-			$watcher: $registerWatcher,
+			$onDestroy,
+			$watcher,
+			$get,
+			$get$,
 			$destroy () { onDestroyCallbacks.forEach(cb => cb()); },
-			$get (identifier) {
-				if ($.value.hasOwnProperty(identifier)) {
-					return $.value[identifier];
-				} else {
-					return $parent.$get(identifier);
+			$assign (values) {
+				for (let key in values) {
+					$.value[key] = values[key];
 				}
+				$.trigger();
 			}
 		};
 	};
 
-	define('debounce', function () {
+	define('debounce', () => {
 	    return (delay, callee) => {
 	        let lastCall = Date.now() - delay;
+	        let finallyTimeout = 0;
 	        return (...args) => {
+	        	clearTimeout(finallyTimeout);
 	            const now = Date.now();
-	            if (now - lastCall > delay) {
+	            const deadTime = delay + lastCall - now;
+
+	            if (deadTime <= 0) {
 	                lastCall = now;
-	                return callee(...args);    
+	                return callee(...args);
 	            } else {
-	                lastCall = now;
+	                finallyTimeout = setTimeout(() => callee(...args), deadTime);
 	            }
 	        };
 	    };
 	});
 
-	define('bnc_docready', function () {
+	define('bnc_docready', () => {
 	    return new Promise((pResolve, pReject) => {
 	        document.addEventListener("DOMContentLoaded", pResolve);
 	    });
 	});
 
-	define('bnc', function () {
+	define('bnc', () => {
 		let scope_map = {};
 		const controllers = [];
 		const directives = [];
 
-		const $link = (bnc_module, element) => {
-			const idString = `$${bnc_module.id}`
+		const $link = (bnc_scope, element) => {
+			if (element.getAttribute('bnc-id')) {
+				console.error('Cannot $link an element with two different scopes!');
+				return;
+			}
+			const idString = `$${bnc_scope.id}`
 			element.setAttribute('bnc-id', idString);
-			scope_map[idString] = bnc_module;
+			scope_map[idString] = bnc_scope;
+		};
+
+		const $unlink = (element) => {
+			const idFromElem = element.getAttribute('bnc-id');
+			element.removeAttribute('bnc-id');
+			const scope = scope_map[idFromElem];
+			delete scope_map[idFromElem];
+			return scope;
 		};
 
 		const $nearest = (element) => {
@@ -114,55 +175,51 @@
 			return bncModuleId ? scope_map[bncModuleId] : null;
 		};
 
-		const $activate = (handlers, element) => {
-			const loaderList = [];
+		const $activateChildren = (handlers, element, activateElement = false) => {
+			const pendingActivations = [];
 
-			handlers.forEach(({ selector, handler }) => {
-				element.querySelectorAll(selector)
-					.forEach(element => {
-						loaderList.push({
-							depth: getElementDepth(element),
-							activate: () => handler(element, $nearest(element))
-						});
-					});
-			});
+			if (activateElement) {
+				handlers.forEach(({ selector, handler }) => {
+					if (element.matches(selector)) {
+						pendingActivations.push(handler(element, $nearest(element)))
+					}
+				});
+			}
 
-			loaderList.sort((a, b) => {
-				a.depth - b.depth;
-			});
+			return Promise.all(pendingActivations)
+				.then(() => {
+					const childrenActivations = [];
 
-			return loaderList.reduce((prevPromise, loader) => {
-				return prevPromise.then(loader.activate);
-			}, Promise.resolve());
+					for (let child of element.children) {
+						childrenActivations.push($activateChildren(handlers, child, true));
+					}
+
+					return Promise.all(childrenActivations);
+				});
 		};
 
-		const $destroy = (element) => {
-			const getAndRemoveId = element => {
-				const id = element.getAttribute('bnc-id');
-				element.removeAttribute('bnc-id');
-				return id;
+		const $destroy = (element, includeElement = false) => {
+			const unbindAndDestroy = element => {
+				const scope = $unlink(element);
+				scope.$destroy();
 			};
 
 			const childBncModuleElements = element.querySelectorAll('[bnc-id]');
-			const idsToDestroy = [];
-			childBncModuleElements.forEach(element => idsToDestroy.push(getAndRemoveId(element)));
+			childBncModuleElements.forEach(unbindAndDestroy);
 
-			idsToDestroy.forEach(idToDestroy => {
-				if (idToDestroy) {
-					scope_map[idToDestroy].$destroy();
-					delete scope_map[idToDestroy];
-				}
-			});
+			if (includeElement) {
+				unbindAndDestroy(element);
+			}
 		};
 
 		const $rebuildSubtree = (element) => {
 			return Promise.resolve()
-				.then(() => $activate(controllers, element))
-				.then(() => $activate(directives, element));
+				.then(() => $activateChildren(controllers, element))
+				.then(() => $activateChildren(directives, element));
 		};
 
 		const $rebuild = () => { 
-			const $element = document.querySelector('bnc-root').parentElement
+			const $element = document.querySelector('bnc-root').parentElement;
 			$destroy($element);
 			if (Object.keys(scope_map).length > 0) {
 				console.error('$destory() on $rootElement did not empty scope_map: ', scope_map);
@@ -179,20 +236,23 @@
 
 		return {
 			$link,
+			$unlink,
 			$nearest,
 			$destroy,
 			scope_map,
 			$rebuildSubtree,
 			$rebuild,
 			$controller (selector, handler) {
-				console.log(`$controller registered for selector ${selector}`);
+				if (debug) {
+					console.log(`$controller registered for selector ${selector}`);	
+				}
 				controllers.push({
 					selector,
 					handler: (element, nearest) => {
-						return Promise.resolve(handler(element, nearest))
-							.then(bnc_module => {
-								if (bnc_module) {
-									$link(bnc_module, element);	
+						return Promise.try(handler, element, nearest)
+							.then(returnValue => {
+								if (returnValue && returnValue.$bnc_scope === true) {
+									$link(returnValue, element);
 								}
 							});
 					}
@@ -200,19 +260,23 @@
 				$refresh();
 			},
 			$directive (selector, handler) { 
-				console.log(`$directive registered for selector ${selector}`);
+				if (debug) {
+					console.log(`$directive registered for selector ${selector}`);	
+				}
 				directives.push({
 					selector,
-					handler: (element, nearest) => Promise.resolve(handler(element, nearest))
+					handler: (element, nearest) => Promise.try(handler, element, nearest)
 				});
 				$refresh();
 			}
 		};
 	});
 
-	define('bnc_root', function (bnc) {
-		return bnc.$controller('bnc-root', function (element) {
+	define('bnc_root', (bnc) => {
+		return bnc.$controller('bnc-root', (element) => {
 			return {
+				$bnc_scope: true,
+				$: Observable({ ComputedObservable }),
 				id: 'root',
 				$destroy () {},
 				$watcher (identifier) { console.error(`$watcher for identifier ${identifier} bubbled up to bnc_root.`); },
@@ -221,29 +285,83 @@
 		});
 	});
 
-	define('bnc_module', function (bnc) {
+	define('bnc_module', (bnc) => {
 		return bnc.$controller('bnc-module', (element, bnc_parent) => {
-			const attrName = element.getAttribute('name');
-			if (!attrName) {
+			const moduleName = element.getAttribute('name');
+			if (!moduleName) {
 				console.error(`Missing 'name' attribute on <bnc-module> tag: `, element);
 				return;
 			}
-			const moduleName = attrName.endsWith('$') ? attrName : attrName + '$';
-			let $destroy = null;
+			return load(moduleName)
+				.then((module$) => {
+					const scope = bnc_scope(module$, bnc_parent);
 
-			return loadModules([moduleName]).then((loadedModules) => {
-				const module$ = loadedModules[0];
-				const scope = bnc_scope(module$, bnc_parent);
-
-				if (typeof module$.value.$link === 'function') {
-					module$.value.$link(scope, element);
-				}
-				return scope;
-			});
+					if (typeof module$.value.$link === 'function') {
+						module$.value.$link(scope, element);
+					}
+					return scope;
+				})
+				.catch(error => console.error(`Failed to load module ${moduleName} `, error));
 		});
 	});
 
-	define('bnc_for', function (bnc) {
+	define('bnc_element', (bnc) => {
+		const load_bnc_element = (stateName, element, $nearest) => load(stateName)
+			.then(module$ => {
+				const template = module$.value.$template;
+				if (typeof template !== 'string') {
+					console.error(`bnc-element - ${name} does not define a $template`);
+					return;
+				}
+				element.innerHTML = template;
+
+				const $scope = bnc_scope(module$, $nearest);
+				if (typeof module$.value.$link === 'function') {
+					module$.value.$link($scope, element);
+				}
+				return $scope;
+			})
+			.catch(error => console.error(`bnc-element - could not find ${stateName}`, error));
+
+		bnc.$controller('bnc-element', (element, $nearest) => {
+			const stateName = element.getAttribute('name');
+			return load_bnc_element(stateName, element, $nearest);
+		});
+
+		return { load_bnc_element }
+	});
+
+	define('bnc_state', (bnc, bnc_element) => {
+		bnc.$controller('bnc-state', (element, $nearest) => {
+			const identifier = element.getAttribute('name');
+			
+			let $scope = null;
+			const updateScope = stateName => {
+				if ($scope !== null) {
+					bnc.$destroy(element, true);
+				}
+				return bnc_element
+					.load_bnc_element(stateName, element, $nearest)
+					.then(scope => {
+						$scope = scope;
+						bnc.$link($scope, element)
+					});
+			}
+			
+			$nearest.$watcher(identifier, stateName => {
+				return updateScope(stateName)
+					.then(() => bnc.$rebuildSubtree(element))
+					.catch(error => console.error(`bnc-state error:`, error));
+			}, false);
+
+			const stateName = $nearest.$get(identifier);
+			return updateScope(stateName)
+				.catch(error => console.error(`bnc-state error:`, error))
+				.then(() => null); // We don't want bnc to bind it twice
+		});
+	});
+
+	define('bnc_for', (bnc) => {
 		const OBJ_REGEX = /^([$A-Z_][0-9A-Z_$]*), ([$A-Z_][0-9A-Z_$]*) of ([$A-Z_][0-9A-Z_$]*)$/i;
 		const ARR_REGEX = /^(?:([$A-Z_][0-9A-Z_$]*), )?([$A-Z_][0-9A-Z_$]*) in ([$A-Z_][0-9A-Z_$]*)$/i;
 
@@ -263,7 +381,7 @@
 				const createChild = (scopeObj) => {	
 					const childScope = bnc_scope(Observable(scopeObj), nearestModule);
 					const clonedElement = childTemplateElement.cloneNode(true);
-					childScope.onDestroy(() => {
+					childScope.$onDestroy(() => {
 						element.removeChild(clonedElement)
 					});
 					element.appendChild(clonedElement);
@@ -277,7 +395,7 @@
 					const valIdf = objMatch[2];
 
 					createChildren = obj => {
-						for (key in obj) {
+						for (let key in obj) {
 							const scopeObj = {};
 							scopeObj[keyIdf] = key;
 							scopeObj[valIdf] = obj[key];
@@ -311,13 +429,53 @@
 					bnc.$rebuildSubtree(element);
 				}, false);
 
-				createChildren(Observable(nearestModule.$get(identifier)).value);
+				createChildren(nearestModule.$get(identifier));
 				resolve();
 			});
 		});
 	});
 
-	define('bnc_bind', function (bnc) {
+	define('bnc_click', (bnc) => {
+		return bnc.$directive('[bnc-click]', (element, nearestModule) => {
+			const expression = `(event) => { ${element.getAttribute('bnc-click')} }`;
+			const onClick$ = Observable(() => {});
+
+			nearestModule.$watcher(expression, value => {
+				if (typeof value === 'function') {
+					onClick$.value = value;
+				} else {
+					console.error(`Expression '${expression}' for bnc-click is not callable: `, value);
+				}
+			});
+
+			element.addEventListener('click', (event) => {
+				onClick$.value(event);
+			});
+		});
+	});
+
+	define('bnc_model', (bnc) => {
+		return bnc.$directive('[bnc-model]', (element, nearestModule) => {
+			const expression = element.getAttribute('bnc-model');
+			const model$ = nearestModule.$get$(expression);
+			if (isObservable(model$) === false) {
+				console.error(`bnc-model: Cannot model on non observable value: `, model$);
+			} else {
+				setTimeout(() => {
+					element.addEventListener('input', ({ target }) => {
+						model$.value = target.value;
+					});
+					model$.stream(value => {
+						if (element.value !== value) {
+							element.value = value;
+						}
+					});
+				});
+			}
+		});
+	});
+
+	define('bnc_bind', (bnc) => {
 		return bnc.$directive('[bnc-bind]', (element, nearestModule) => {
 			const identifier = element.getAttribute('bnc-bind');
 			nearestModule.$watcher(identifier, value => {
@@ -326,16 +484,42 @@
 		});
 	});
 
-	define('bnc_css', function (bnc) {
+	define('bnc_css', (bnc) => {
 		return bnc.$directive('[bnc-css]', (element, nearestModule) => {
-			const identifier = element.getAttribute('bcn-css');
-			nearestModule.$watcher(identifier, value => {
-				element.style = value;
+			const attr = element.getAttribute('bnc-css')
+			const pairs = attr.split(',');
+			pairs.forEach(pair => {
+				const [css_prop, identifier] = pair.split(':');
+				nearestModule.$watcher(identifier.trim(), value => {
+					element.style[css_prop.trim()] = value;
+				});
 			});
 		});
 	});
 
-	define('bnc_class', function (bnc) {
+	define('bnc_attr', (bnc) => {
+		return bnc.$directive('[bnc-attr]', (element, nearestModule) => {
+			const attr = element.getAttribute('bnc-attr')
+			const pairs = attr.split(',');
+			pairs.forEach(pair => {
+				let [attrName, identifier] = pair.split(':');
+				nearestModule.$watcher(identifier.trim(), value => {
+					attrName = attrName.trim();
+					if (value === undefined) {
+						element.removeAttribute(attrName);
+					} else {
+						if (attrName === 'src') {
+							element.src = value;
+						} else {
+							element.setAttribute(attrName, value);
+						}
+					}
+				});
+			});
+		});
+	});
+
+	define('bnc_class', (bnc) => {
 		return bnc.$directive('[bnc-class]', (element, nearestModule) => {
 			const identifier = element.getAttribute('bnc-class');
 			nearestModule.$watcher(identifier, value => {
@@ -345,7 +529,7 @@
 		});
 	});
 
-	define('bnc_if', function (bnc) {
+	define('bnc_if', (bnc) => {
 		return bnc.$directive('[bnc-if]', (element, nearestModule) => {
 			const identifier = element.getAttribute('bnc-if');
 			nearestModule.$watcher(identifier, value => {
@@ -354,7 +538,16 @@
 		});
 	});
 
-	define('bnc_template', function (bnc, debounce) {
+	define('bnc_if_not', (bnc) => {
+		return bnc.$directive('[bnc-if-not]', (element, nearestModule) => {
+			const identifier = element.getAttribute('bnc-if-not');
+			nearestModule.$watcher(identifier, value => {
+				element.style.display = !value ? '' : 'none';
+			});
+		});
+	});
+
+	define('bnc_template', (bnc, debounce) => {
 		const TEMPLATE_REGEX = /\${[$A-Z_][0-9A-Z_$]*}/gmi
 		const ILLEGAL_PLACEHOLDERS = /\${(?:[0-9A-Z_$]*[^0-9A-Z_${}]+[0-9A-Z_$]*)+}/gi
 
@@ -369,10 +562,10 @@
 			});
 
 			const map = {};
-			const onChange = () => {
+			const onChange = debounce(100, () => {
 				let populatedString = eval(templateString);
 				element.textContent = populatedString;
-			};
+			});
 
 			identifiers.forEach(identifier => {
 				templateString = templateString.replace(identifier, `map.${identifier}`);
@@ -384,10 +577,10 @@
 		});
 	});
 
-	define('bnc_ready', function (bnc, bnc_root, bnc_module, bnc_bind, bnc_css, bnc_class, bnc_if, bnc_for, bnc_template, bnc_docready) {
+	define('bnc_ready', (bnc, bnc_root, bnc_module, bnc_element, bnc_state, bnc_click, bnc_model, bnc_bind, bnc_css, bnc_attr, bnc_class, bnc_if, bnc_if_not, bnc_for, bnc_template, bnc_docready) => {
 		bnc.$rebuild();
 	});
-	loadModules(['bnc_ready']);
+	load('bnc_ready');
 
 	window.bnc_bunch = bnc_bunch;
 }());

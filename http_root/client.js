@@ -22,8 +22,10 @@ resolve(function bnc_polnish_card (bnc) {
 	bnc.$directive('[polnish-card]', (element, nearestModule) => {
 		const identifier = element.getAttribute('polnish-card');
 		nearestModule.$watcher(identifier, card => {
-			element.className = card.isRed ? 'red highlighted' : 'highlighted';
-			element.innerHTML = cardHtml(card);
+			if (card !== undefined) {
+				element.className = card.isRed ? 'red highlighted' : 'highlighted';
+				element.innerHTML = cardHtml(card);
+			}
 		});
 	});
 
@@ -62,6 +64,10 @@ define('Game', [{}, function (Socket, name$, room$, fragment$, uiChooseName) {
 	const deck$ = Observable([]);
 	const wholeDeck$ = Observable([[]]);
 	const clients$ = Observable({});
+	const cardCount$ = ComputedObservable([clients$], (clients) => {
+		console.log('hello');
+		return clients[name$.value];
+	});
 
 	const sendCardCount = (count) => Socket.socket$.value.send(JSON.stringify({ type: MESSAGE_TYPES.NEXT_CARDS, count }));
 	const sendName = () => {
@@ -83,10 +89,6 @@ define('Game', [{}, function (Socket, name$, room$, fragment$, uiChooseName) {
 		if (['ended', 'joined'].includes(state$.value)) {
 			Socket.socket$.value.send(JSON.stringify({ type: MESSAGE_TYPES.NEXT_ROUND }));
 		}
-	};
-
-	const getCardCound = () => {
-		return clients$.value[name$.value] || 1;
 	};
 
 	const leave = () => {
@@ -114,7 +116,7 @@ define('Game', [{}, function (Socket, name$, room$, fragment$, uiChooseName) {
 			return;
 		}
 
-		sendCardCount(1);
+		// sendCardCount(1);
 		sendName();
 		socket.onmessage = (message) => {
 			const data = JSON.parse(message.data);
@@ -122,8 +124,15 @@ define('Game', [{}, function (Socket, name$, room$, fragment$, uiChooseName) {
 			switch (data.type) {
 				case MESSAGE_TYPES.DECK:
 					wholeDeck$.value = [[]];
-					deck$.value = data.deck;
-					state$.value = 'running';
+					if (data.deck) {
+						deck$.value = data.deck;
+						if (cardCount$.value !== data.deck.length) {
+							cardCount$.value = data.deck.length;
+						}
+						state$.value = 'running';
+					} else if (state$.value != 'ended') {
+						state$.value = 'joined';
+					}
 					break;
 				case MESSAGE_TYPES.SHOW:
 					const myCards = deck$.value;
@@ -148,10 +157,10 @@ define('Game', [{}, function (Socket, name$, room$, fragment$, uiChooseName) {
 		deck$,
 		wholeDeck$,
 		clients$,
+		cardCount$,
 		showCards,
 		nextRound,
 		sendCardCount,
-		getCardCound,
 		leave,
 	};
 }]);
@@ -212,10 +221,15 @@ define('uiEnded', function (Game) {
 	return {
 		placeholderCard: PLACEHOLDRS.JOINED,
 		wholeDeck$: Game.wholeDeck$,
+		cardCount$: Game.cardCount$,
 		$link: (scope, element) => {
-			const nextCardsCount = element.querySelector('#nextCardCount');
+			Game.cardCount$.onChange((c_new, c_old) => {
+				if (c_new > 0 && c_new != c_old) {
+					Game.sendCardCount(c_new);
+				}
+			});
 			element.querySelector('#nextRoundButton').onclick = () => {
-				Game.sendCardCount(parseInt(nextCardsCount.value));
+				Game.sendCardCount(parseInt(Game.cardCount$.value));
 				Game.nextRound();
 			};
 		}
@@ -276,7 +290,7 @@ define('uiChooseName', function (name$, room$, fragment$) {
 				inputRoom.value = '';
 			};
 
-			scope.onDestroy(() => {
+			scope.$onDestroy(() => {
 				unbindNameListener();
 				unbindRoomListener();
 			});
